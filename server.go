@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 )
 
 type Client struct {
@@ -38,7 +39,7 @@ func msgToClient(conn net.Conn, cli Client) {
 }
 
 var onlineMap = make(map[string]Client)
-
+var rLock sync.RWMutex
 func handleClient(conn net.Conn) {
 	fmt.Println(conn.RemoteAddr().String(), "接入")
 	msg <- conn.RemoteAddr().String()+" 接入"
@@ -46,7 +47,9 @@ func handleClient(conn net.Conn) {
 		addr: conn.RemoteAddr().String(),
 		C:    make(chan string),
 	}
+	rLock.Lock()
 	onlineMap[conn.RemoteAddr().String()] = cli
+	rLock.Unlock()
 	//用于向当前客户端发送消息
 	go msgToClient(conn, cli)
 	//处理客户端发送的消息
@@ -60,9 +63,11 @@ func router() {
 	for {
 		ms := <-msg
 		//给每个在线用户发消息
+		rLock.RLock()
 		for _, cli := range onlineMap {
 			cli.C <- ms
 		}
+		rLock.RUnlock()
 	}
 }
 
@@ -74,7 +79,9 @@ func execData(conn net.Conn) {
 		if err != nil || string(data[:n]) == "bye"{
 			fmt.Println(conn.RemoteAddr().String(), "断开")
 			msg<-conn.RemoteAddr().String()+" 断开"
+			rLock.Lock()
 			delete(onlineMap, conn.RemoteAddr().String())
+			rLock.Unlock()
 			return
 		}
 		fmt.Println(conn.RemoteAddr().String(), "发送：", string(data[:n]))
